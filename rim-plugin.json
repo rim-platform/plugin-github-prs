@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "RIM team",
   "runtime_kind": "WebSandboxed",
-  "entrypoint": "main.ts",
+  "entrypoint": "main.mjs",
   "description": "Lists the open pull requests of public GitHub repositories you choose. Talks only to GitHub, without a token.",
   "capabilities": ["ui.panel", "network.fetch"],
   "network_origins": ["https://api.github.com", "https://avatars.githubusercontent.com"],

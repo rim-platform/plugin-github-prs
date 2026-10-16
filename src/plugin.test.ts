@@ -6,7 +6,7 @@ import { startTestHost, validateManifest } from "@rim-platform/plugin-sdk/testin
 
 import { createPlugin, MAX_REPOS, PANEL_ID, REFRESH_FLOOR_MS, type PanelState } from "./plugin.ts";
 
-const MANIFEST = `${import.meta.dirname}/rim-plugin.json`;
+const MANIFEST = `${import.meta.dirname}/../rim-plugin.json`;
 const T0 = Date.parse("2026-10-09T12:00:00Z");
 
 interface FakeGitHub {
@@ -92,10 +92,7 @@ describe("github-prs plugin", () => {
   it("has a manifest the host installs once bundled", () => {
     const manifest = JSON.parse(readFileSync(MANIFEST, "utf8"));
     expect(() =>
-      validateManifest(
-        { ...manifest, entrypoint: "main.mjs" },
-        { forbiddenOrigins: ["https://rim.example"] },
-      ),
+      validateManifest(manifest, { forbiddenOrigins: ["https://rim.example"] }),
     ).not.toThrow();
   });
 
