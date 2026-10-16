@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "plugin_id": "chat.rim.github-prs",
   "display_name": "GitHub Pull Requests",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "author": "RIM team",
   "runtime_kind": "WebSandboxed",
   "entrypoint": "main.mjs",
