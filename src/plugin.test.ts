@@ -4,7 +4,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { startTestHost, validateManifest } from "@rim-platform/plugin-sdk/testing";
 
-import { createPlugin, MAX_REPOS, PANEL_ID, REFRESH_FLOOR_MS, type PanelState } from "./plugin.ts";
+import {
+  createPlugin,
+  DEFAULT_REPOS,
+  MAX_REPOS,
+  PANEL_ID,
+  REFRESH_FLOOR_MS,
+  type PanelState,
+} from "./plugin.ts";
 
 const MANIFEST = `${import.meta.dirname}/../rim-plugin.json`;
 const T0 = Date.parse("2026-10-09T12:00:00Z");
@@ -155,8 +162,28 @@ describe("github-prs plugin", () => {
     await t.host.shutdown();
   });
 
-  it("adds and removes repositories, keeps them in the store, and holds at most 10", async () => {
+  it("starts with the project's repositories until a list is saved, and keeps an emptied one", async () => {
     const t = start();
+    await t.host.handshake();
+    await until(() => t.panels.some((p) => !p.loading && p.fetchedAt !== null));
+    expect(t.panel().repos.map((r) => r.repo)).toEqual([
+      "rim-platform/rim-ui",
+      "rim-platform/rim-server",
+    ]);
+    for (const repo of DEFAULT_REPOS) await t.host.execute("remove_repo", { repo });
+    expect(t.store.get("repos")).toEqual([]);
+    await t.host.shutdown();
+
+    const emptied = start([]);
+    await emptied.host.handshake();
+    await until(() => emptied.panels.length > 0);
+    expect(emptied.panel().repos).toEqual([]);
+    expect(emptied.github.requests).toHaveLength(0);
+    await emptied.host.shutdown();
+  });
+
+  it("adds and removes repositories, keeps them in the store, and holds at most 10", async () => {
+    const t = start([]);
     await t.host.handshake();
     const added = await t.host.execute("add_repo", { repo: "https://github.com/rust-lang/rust/" });
     expect(added.result?.message).toBe("Added rust-lang/rust");

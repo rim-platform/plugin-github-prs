@@ -21,6 +21,8 @@ export const REFRESH_FLOOR_MS = 2 * 60 * 1000;
 /** How often the plugin refreshes on its own while it runs. */
 export const AUTO_REFRESH_MS = 5 * 60 * 1000;
 const STORAGE_KEY = "repos";
+/** The list a person starts with until they save one of their own: the project's repositories. */
+export const DEFAULT_REPOS: readonly string[] = ["rim-platform/rim-ui", "rim-platform/rim-server"];
 
 /** One repository in the panel. */
 export interface RepoState {
@@ -84,7 +86,10 @@ export function createPlugin(options: PluginOptions = {}) {
     }
   }
 
-  /** The signed-in user's repositories from the host's store; none when nobody is signed in. */
+  /**
+   * The signed-in user's repositories from the host's store, or {@link DEFAULT_REPOS} when
+   * they never saved a list; none when nobody is signed in.
+   */
   async function load(host: Host): Promise<void> {
     signedIn = host.principal !== null;
     fetchedAt = null;
@@ -97,7 +102,7 @@ export function createPlugin(options: PluginOptions = {}) {
       const stored = await host.storage.get(STORAGE_KEY);
       const names = Array.isArray(stored)
         ? stored.map(normalizeRepo).filter((r): r is string => r !== null)
-        : [];
+        : [...DEFAULT_REPOS];
       repos = names.slice(0, MAX_REPOS).map((repo) => ({ repo, pulls: [], error: null }));
     } catch (error) {
       repos = [];

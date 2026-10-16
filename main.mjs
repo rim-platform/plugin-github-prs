@@ -906,6 +906,7 @@ var MAX_REPOS = 10;
 var REFRESH_FLOOR_MS = 2 * 60 * 1e3;
 var AUTO_REFRESH_MS = 5 * 60 * 1e3;
 var STORAGE_KEY = "repos";
+var DEFAULT_REPOS = ["rim-platform/rim-ui", "rim-platform/rim-server"];
 function createPlugin(options = {}) {
   const fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
   const now = options.now ?? Date.now;
@@ -949,7 +950,7 @@ function createPlugin(options = {}) {
     }
     try {
       const stored = await host.storage.get(STORAGE_KEY);
-      const names = Array.isArray(stored) ? stored.map(normalizeRepo).filter((r) => r !== null) : [];
+      const names = Array.isArray(stored) ? stored.map(normalizeRepo).filter((r) => r !== null) : [...DEFAULT_REPOS];
       repos = names.slice(0, MAX_REPOS).map((repo) => ({ repo, pulls: [], error: null }));
     } catch (error) {
       repos = [];

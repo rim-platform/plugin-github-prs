@@ -47,7 +47,7 @@
     {
       "id": "prs",
       "title": "Pull requests",
-      "description": "Open pull requests of the repositories you added.",
+      "description": "Open pull requests of the repositories on your list.",
       "slot": "tool_panel"
     }
   ]
