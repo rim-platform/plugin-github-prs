@@ -1,6 +1,6 @@
 {
   "name": "rim-plugin-github-prs",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "description": "RIM plugin that lists the open pull requests of public GitHub repositories",
   "license": "Apache-2.0",
