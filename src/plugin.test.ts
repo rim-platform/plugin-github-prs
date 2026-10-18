@@ -7,6 +7,7 @@ import { startTestHost, validateManifest } from "@rim-platform/plugin-sdk/testin
 import {
   createPlugin,
   DEFAULT_REPOS,
+  INVALID_TOKEN_NOTICE,
   MAX_REPOS,
   PANEL_ID,
   REFRESH_FLOOR_MS,
@@ -327,6 +328,7 @@ describe("the GitHub token setting", () => {
     t.clock.now += REFRESH_FLOOR_MS;
     await t.host.execute("refresh");
     t.host.changeSettings({ github_token: "two words" });
+    await until(() => t.panel().notice === INVALID_TOKEN_NOTICE);
     t.clock.now += REFRESH_FLOOR_MS;
     await t.host.execute("refresh");
     expect(t.github.headers.slice(-2)).toEqual([
@@ -343,7 +345,7 @@ describe("the GitHub token setting", () => {
     await until(() => typeof t.panel()?.notice === "string");
     expect(t.panel().notice).toMatch(LIMIT_MESSAGE);
     expect(t.panel().notice).toMatch(
-      /To raise it, add a GitHub token in the plugin's settings in the desktop app: the side rail's Plugins menu, or Settings → Plugins\.$/,
+      /To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: the side rail's Plugins menu, or Settings → Plugins\.$/,
     );
     expect(t.github.requests).toHaveLength(1);
 
@@ -377,7 +379,7 @@ describe("the GitHub token setting", () => {
     await t.host.handshake();
     await until(() => typeof t.panel()?.notice === "string");
     expect(t.panel().notice).toBe(
-      "GitHub rejected the token in the plugin's settings: it may have expired or been revoked. Replace or clear it there.",
+      "GitHub rejected the token in this plugin's settings: it may have expired or been revoked. Replace or clear it there.",
     );
     // Every request would be refused the same way, so it stops at the first.
     expect(t.github.requests).toHaveLength(1);
@@ -403,7 +405,7 @@ describe("the GitHub token setting", () => {
     expect(t.github.headers).toEqual([{ Accept: "application/vnd.github+json" }]);
     expect(t.panel().notice).toMatch(LIMIT_MESSAGE);
     expect(t.panel().notice).toMatch(
-      /The token in the plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh\.$/,
+      /The token in this plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh\.$/,
     );
     expect(t.panel().notice).not.toMatch(/add a GitHub token/);
     expect(t.host.logs.filter((l) => l.level === "warn")).toHaveLength(1);
@@ -441,6 +443,82 @@ describe("the GitHub token setting", () => {
     expect(t.panel().notice).toMatch(/^GitHub refused: .* Try again after \d\d:\d\d\.$/);
     expect(t.host.logs).toEqual([]);
     await t.host.shutdown();
+  });
+
+  it("does not send a token no header can carry, and says to paste it again", async () => {
+    const broken = "ghp_abc\ndef\u00e9secretvalue";
+    const t = start(["rust-lang/rust"], { settings: { github_token: broken } });
+    await t.host.handshake();
+    await until(loaded(t));
+    expect(t.github.headers).toEqual([{ Accept: "application/vnd.github+json" }]);
+    expect(t.panel().notice).toBe(INVALID_TOKEN_NOTICE);
+    expect(t.panel().repos[0].pulls).toHaveLength(2);
+    t.clock.now += REFRESH_FLOOR_MS;
+    expect((await t.host.execute("refresh")).result?.message).toBe(INVALID_TOKEN_NOTICE);
+
+    // With the hourly limit used up, the refusal names the token as the reason.
+    t.github.limit();
+    t.clock.now += REFRESH_FLOOR_MS;
+    const limited = (await t.host.execute("refresh")).result?.message ?? "";
+    expect(limited).toMatch(LIMIT_MESSAGE);
+    expect(limited.endsWith(` ${INVALID_TOKEN_NOTICE}`)).toBe(true);
+    expect(everythingSent(t)).not.toContain("secretvalue");
+
+    // A valid token replaces it: the notice goes and the next fetch carries it.
+    t.github.limit(false);
+    t.host.changeSettings({ github_token: TOKEN });
+    await until(() => t.github.headers.at(-1)?.Authorization === `Bearer ${TOKEN}`);
+    await until(() => !t.panel().loading);
+    expect(t.panel().notice).toBeNull();
+    await t.host.shutdown();
+  });
+
+  it("shows a token that cannot be sent as soon as it is saved, and drops the notice once cleared", async () => {
+    const t = start(["rust-lang/rust"], { settings: {} });
+    await t.host.handshake();
+    await until(loaded(t));
+    t.host.changeSettings({ github_token: "github_pat_ with a space" });
+    await until(() => t.panel().notice === INVALID_TOKEN_NOTICE);
+    t.host.changeSettings({});
+    await until(() => t.panel().notice === null);
+    expect(t.github.headers.every((h) => h.Authorization === undefined)).toBe(true);
+    await t.host.shutdown();
+  });
+
+  it("keeps the token out of the store", async () => {
+    const t = start(["rust-lang/rust"], { settings: { github_token: TOKEN } });
+    await t.host.handshake();
+    await until(loaded(t));
+    await t.host.execute("add_repo", { repo: "tokio-rs/tokio" });
+    await t.host.execute("remove_repo", { repo: "rust-lang/rust" });
+    expect(t.store.get("repos")).toEqual(["tokio-rs/tokio"]);
+    expect(JSON.stringify([...t.store])).not.toContain(TOKEN);
+    const writes = t.host.frames.filter(
+      (f) => (f as { method?: string }).method === "rim.storage.set",
+    );
+    expect(writes).toHaveLength(2);
+    expect(JSON.stringify(writes)).not.toContain(TOKEN);
+    await t.host.shutdown();
+  });
+
+  it("refuses owner/. and owner/.. as repositories, so no request goes elsewhere", async () => {
+    const t = start([], { settings: { github_token: TOKEN } });
+    await t.host.handshake();
+    for (const repo of ["owner/..", "owner/.", "https://github.com/owner/.."]) {
+      expect((await t.host.execute("add_repo", { repo })).error).toMatchObject({ code: -32602 });
+    }
+    expect(t.github.requests).toEqual([]);
+    await t.host.shutdown();
+
+    // A stored list is checked the same way when it is loaded.
+    const stored = start(["owner/..", "rust-lang/rust"], { settings: { github_token: TOKEN } });
+    await stored.host.handshake();
+    await until(loaded(stored));
+    expect(stored.panel().repos.map((r) => r.repo)).toEqual(["rust-lang/rust"]);
+    expect(stored.github.requests).toEqual([
+      "https://api.github.com/repos/rust-lang/rust/pulls?state=open&per_page=30",
+    ]);
+    await stored.host.shutdown();
   });
 
   it("never puts the token in a message, a log line, the panel or a command answer", async () => {

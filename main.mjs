@@ -871,9 +871,12 @@ var GitHubError = class extends Error {
 };
 var REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 var AVATARS = "https://avatars.githubusercontent.com/";
+var API = "https://api.github.com/";
 function normalizeRepo(value) {
   if (typeof value !== "string") return null;
   const repo = value.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/+$/, "");
+  const name = repo.slice(repo.indexOf("/") + 1);
+  if (name === "." || name === "..") return null;
   return REPO.test(repo) && !repo.endsWith(".git") ? repo : null;
 }
 function isRecord2(value) {
@@ -900,17 +903,16 @@ function clock(ms) {
   const date = new Date(ms);
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
-async function fetchPulls(repo, fetchImpl, token = null) {
+function requestHeaders(url, token) {
   const headers = { Accept: "application/vnd.github+json" };
-  if (token !== null) headers.Authorization = `Bearer ${token}`;
+  if (token !== null && url.startsWith(API)) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+async function fetchPulls(repo, fetchImpl, token = null) {
+  const url = `${API}repos/${repo}/pulls?state=open&per_page=30`;
   let response;
   try {
-    response = await fetchImpl(
-      `https://api.github.com/repos/${repo}/pulls?state=open&per_page=30`,
-      {
-        headers
-      }
-    );
+    response = await fetchImpl(url, { headers: requestHeaders(url, token) });
   } catch {
     throw new GitHubError("GitHub could not be reached.");
   }
@@ -926,7 +928,7 @@ async function fetchPulls(repo, fetchImpl, token = null) {
   }
   if (response.status === 401 && token !== null) {
     throw new GitHubError(
-      "GitHub rejected the token in the plugin's settings: it may have expired or been revoked. Replace or clear it there.",
+      "GitHub rejected the token in this plugin's settings: it may have expired or been revoked. Replace or clear it there.",
       { tokenRejected: true }
     );
   }
@@ -947,6 +949,7 @@ var AUTO_REFRESH_MS = 5 * 60 * 1e3;
 var STORAGE_KEY = "repos";
 var TOKEN_SETTING = "github_token";
 var TOKEN_CHARS = /^[\x21-\x7e]+$/;
+var INVALID_TOKEN_NOTICE = "The GitHub token in this plugin's settings is not valid, so it was not sent; paste it again.";
 var DEFAULT_REPOS = ["rim-platform/rim-ui", "rim-platform/rim-server"];
 function createPlugin(options = {}) {
   const fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
@@ -1039,13 +1042,13 @@ function createPlugin(options = {}) {
   function tokenHint() {
     switch (tokenStatus) {
       case "none":
-        return " To raise it, add a GitHub token in the plugin's settings in the desktop app: the side rail's Plugins menu, or Settings \u2192 Plugins.";
+        return " To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: the side rail's Plugins menu, or Settings \u2192 Plugins.";
       case "locked":
-        return " The token in the plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
+        return " The token in this plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
       case "unreadable":
         return " The plugin's settings could not be read, so the token in them was not used.";
       case "unusable":
-        return " The token in the plugin's settings has characters a GitHub token never has, so it was not sent; replace it there.";
+        return ` ${INVALID_TOKEN_NOTICE}`;
       default:
         return "";
     }
@@ -1099,6 +1102,7 @@ function createPlugin(options = {}) {
     notice = null;
     fetchedAt = now();
     await fetchRepos(host, repos);
+    if (tokenStatus === "unusable") notice ??= INVALID_TOKEN_NOTICE;
     await publish(host);
     const open = repos.reduce((sum, r) => sum + r.pulls.length, 0);
     return notice ?? `${open} open pull request${open === 1 ? "" : "s"} in ${repos.length} repositor${repos.length === 1 ? "y" : "ies"}`;
@@ -1173,11 +1177,20 @@ function createPlugin(options = {}) {
       await refresh(host);
     },
     // A save, or another account signing in: the whole set. A new token fetches
-    // again at once when GitHub had refused the old one.
+    // again at once when GitHub had refused the old one; one that cannot be sent
+    // says so at once.
     async onSettingsChanged(values, host) {
-      if (!applySettings(values)) return;
+      const blocked = applySettings(values);
       await loaded;
-      await refresh(host);
+      if (blocked) {
+        await refresh(host);
+      } else if (tokenStatus === "unusable" && notice === null) {
+        notice = INVALID_TOKEN_NOTICE;
+        await publish(host);
+      } else if (tokenStatus !== "unusable" && notice === INVALID_TOKEN_NOTICE) {
+        notice = null;
+        await publish(host);
+      }
     },
     onShutdown() {
       if (timer !== null) clearInterval(timer);

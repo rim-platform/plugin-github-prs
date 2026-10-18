@@ -55,7 +55,7 @@
     {
       "key": "github_token",
       "title": "GitHub token",
-      "description": "Optional. A fine-grained personal access token raises GitHub's limit from 60 to 5,000 requests an hour. Read access to public repositories is enough; add Pull requests: Read-only on private ones to list them too. Kept in this device's secret vault, sent only to api.github.com.",
+      "description": "Optional, desktop app only. A fine-grained personal access token with Public repositories (read-only) access and an expiry date raises GitHub's limit from 60 to 5,000 requests an hour. Kept in this device's encrypted secret vault, never synced, sent only to api.github.com.",
       "value_type": "string",
       "is_secret": true,
       "placeholder": "github_pat_…"

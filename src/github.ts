@@ -35,6 +35,8 @@ export class GitHubError extends Error {
 
 const REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const AVATARS = "https://avatars.githubusercontent.com/";
+/** The one origin a request may carry the token to. */
+const API = "https://api.github.com/";
 
 /** `owner/name` trimmed, or null when it is not a repository name. */
 export function normalizeRepo(value: unknown): string | null {
@@ -43,6 +45,9 @@ export function normalizeRepo(value: unknown): string | null {
     .trim()
     .replace(/^https:\/\/github\.com\//, "")
     .replace(/\/+$/, "");
+  const name = repo.slice(repo.indexOf("/") + 1);
+  // `.` and `..` would make the request URL a different API path.
+  if (name === "." || name === "..") return null;
   return REPO.test(repo) && !repo.endsWith(".git") ? repo : null;
 }
 
@@ -78,24 +83,25 @@ function clock(ms: number): string {
 }
 
 /**
- * Fetch the open pull requests of `repo`, sending `token` as a bearer token when it is
- * not null and nothing but the `Accept` header when it is.
+ * The headers of a request to `url`: `Accept`, and `token` as a bearer token only when
+ * there is one and `url` is on api.github.com.
  */
+export function requestHeaders(url: string, token: string | null): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
+  if (token !== null && url.startsWith(API)) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+/** Fetch the open pull requests of `repo`, with `token` when it is not null. */
 export async function fetchPulls(
   repo: string,
   fetchImpl: typeof fetch,
   token: string | null = null,
 ): Promise<Pull[]> {
-  const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
-  if (token !== null) headers.Authorization = `Bearer ${token}`;
+  const url = `${API}repos/${repo}/pulls?state=open&per_page=30`;
   let response: Response;
   try {
-    response = await fetchImpl(
-      `https://api.github.com/repos/${repo}/pulls?state=open&per_page=30`,
-      {
-        headers,
-      },
-    );
+    response = await fetchImpl(url, { headers: requestHeaders(url, token) });
   } catch {
     throw new GitHubError("GitHub could not be reached.");
   }
@@ -117,7 +123,7 @@ export async function fetchPulls(
   }
   if (response.status === 401 && token !== null) {
     throw new GitHubError(
-      "GitHub rejected the token in the plugin's settings: it may have expired or been revoked. Replace or clear it there.",
+      "GitHub rejected the token in this plugin's settings: it may have expired or been revoked. Replace or clear it there.",
       { tokenRejected: true },
     );
   }

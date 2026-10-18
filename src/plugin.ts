@@ -26,6 +26,9 @@ const STORAGE_KEY = "repos";
 export const TOKEN_SETTING = "github_token";
 /** What a token sent in a header can hold: printable ASCII without spaces. */
 const TOKEN_CHARS = /^[\x21-\x7e]+$/;
+/** The notice while the saved token cannot be sent; it never repeats the value. */
+export const INVALID_TOKEN_NOTICE =
+  "The GitHub token in this plugin's settings is not valid, so it was not sent; paste it again.";
 /** The list a person starts with until they save one of their own: the project's repositories. */
 export const DEFAULT_REPOS: readonly string[] = ["rim-platform/rim-ui", "rim-platform/rim-server"];
 
@@ -177,13 +180,13 @@ export function createPlugin(options: PluginOptions = {}) {
   function tokenHint(): string {
     switch (tokenStatus) {
       case "none":
-        return " To raise it, add a GitHub token in the plugin's settings in the desktop app: the side rail's Plugins menu, or Settings → Plugins.";
+        return " To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: the side rail's Plugins menu, or Settings → Plugins.";
       case "locked":
-        return " The token in the plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
+        return " The token in this plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
       case "unreadable":
         return " The plugin's settings could not be read, so the token in them was not used.";
       case "unusable":
-        return " The token in the plugin's settings has characters a GitHub token never has, so it was not sent; replace it there.";
+        return ` ${INVALID_TOKEN_NOTICE}`;
       default:
         return "";
     }
@@ -249,6 +252,7 @@ export function createPlugin(options: PluginOptions = {}) {
     notice = null;
     fetchedAt = now();
     await fetchRepos(host, repos);
+    if (tokenStatus === "unusable") notice ??= INVALID_TOKEN_NOTICE;
     await publish(host);
     const open = repos.reduce((sum, r) => sum + r.pulls.length, 0);
     return (
@@ -331,11 +335,20 @@ export function createPlugin(options: PluginOptions = {}) {
       await refresh(host);
     },
     // A save, or another account signing in: the whole set. A new token fetches
-    // again at once when GitHub had refused the old one.
+    // again at once when GitHub had refused the old one; one that cannot be sent
+    // says so at once.
     async onSettingsChanged(values, host) {
-      if (!applySettings(values)) return;
+      const blocked = applySettings(values);
       await loaded;
-      await refresh(host);
+      if (blocked) {
+        await refresh(host);
+      } else if (tokenStatus === "unusable" && notice === null) {
+        notice = INVALID_TOKEN_NOTICE;
+        await publish(host);
+      } else if (tokenStatus !== "unusable" && notice === INVALID_TOKEN_NOTICE) {
+        notice = null;
+        await publish(host);
+      }
     },
     onShutdown() {
       if (timer !== null) clearInterval(timer);

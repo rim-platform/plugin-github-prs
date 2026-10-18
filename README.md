@@ -18,43 +18,48 @@ for two permissions:
   `api.github.com` (the pull requests) and `avatars.githubusercontent.com` (the authors'
   pictures). The frame's content security policy blocks every other site.
 
-Reading its own settings needs no permission. Without a token it sees public repositories
-only, and GitHub allows 60 requests an hour per IP address; with [your own token](#a-github-token)
-it allows 5,000 an hour. Either way the plugin refreshes on its own every 5 minutes, at most
-every 2 minutes when you ask, and stops asking and says so when GitHub refuses. Your list of
-repositories is kept in the app's plugin store for your account on that device. Until you
-change it, the list is the two project repositories; a list you emptied stays empty.
+Reading its own settings needs no permission. Without a token GitHub allows 60 requests an
+hour per IP address; with [your own token](#a-github-token), which works only in the RIM
+desktop app, it allows 5,000 an hour. Either way the plugin refreshes on its own every 5
+minutes, at most every 2 minutes when you ask, and stops asking and says so when GitHub
+refuses. Your list of repositories is kept in the app's plugin store for your account on that
+device. Until you change it, the list is the two project repositories; a list you emptied
+stays empty.
 
 ## A GitHub token
 
-The plugin has one setting, **GitHub token**, which is optional. Open it from the plugin's
-row in Settings → Plugins (**Settings**), from its row in the side rail's **Plugins** menu, or
-from **settings** at the foot of the panel. To make a token:
+The plugin has one setting, **GitHub token**, which is optional and works only in the RIM
+desktop app. Open it from the plugin's row in Settings → Plugins (**Settings**), from its row
+in the side rail's **Plugins** menu, or from **settings** at the foot of the panel. To make a
+token:
 
 1. On GitHub, open Settings → Developer settings → Personal access tokens → Fine-grained
    tokens → Generate new token.
-2. Give it a name and an expiry. Under **Repository access**, **Public repositories** is
-   enough for public repositories: the token can then read them and nothing else.
-3. To list the pull requests of private repositories too, pick **Only select repositories**
-   with those repositories and, under **Permissions**, give **Pull requests** read-only
-   access (GitHub adds **Metadata** read-only on its own). The plugin only reads; never give
-   it write access.
-4. Generate the token and paste it into the field. A classic token (`ghp_…`) works too, with
-   no scopes for public repositories.
+2. Give it a name and an expiry date.
+3. Under **Repository access**, pick **Public repositories (read-only)**. That is all the
+   plugin needs: the token can read public repositories and nothing else.
+4. Generate the token and paste it into the field.
+
+Keep the token to public repositories. A token with access to private repositories works too,
+and then the pull requests of any private repository on your list appear in the panel, titles
+and authors included, for anyone who sees your screen.
 
 Where it is kept:
 
-- **On the desktop** the token is kept in the app's secret vault, for your account on that
-  device. It is never synced or sent to the RIM server, the form shows only that it is set,
-  and uninstalling the plugin deletes it. The plugin sends it to `api.github.com` alone, as
-  `Authorization: Bearer`, and never puts it in a message, the panel or the log.
-- **In the web app** there is no secret vault, so the field says it needs the desktop app and
-  the plugin runs without a token there.
+- **On the desktop** the token is kept in the desktop app's encrypted secret vault on this
+  device, for your account. It is never synced to another device or sent to the RIM server,
+  the form shows only that it is set, and uninstalling the plugin deletes it. The plugin sends
+  it only to `api.github.com`, as `Authorization: Bearer`, and never stores it or puts it in a
+  message, the panel or the log.
+- **In the web app** there are no secret settings, so the field says it needs the desktop app
+  and the plugin runs without a token there.
 
-When GitHub's limit is used up, the panel says what you can do: add a token, unlock the
-desktop's secret vault if it holds one that could not be read, or wait until the time it
-names. When GitHub rejects the token (expired, revoked), the panel says so; replace or clear
-it in the settings, and the plugin fetches again at once.
+The plugin checks the token before it sends it: one with a space, a line break or a character
+outside ASCII is not sent, and the panel asks you to paste it again. When GitHub's limit is
+used up, the panel says what you can do: add a token in the desktop app, unlock the desktop's
+secret vault if it holds one that could not be read, or wait until the time it names. When
+GitHub rejects the token (expired, revoked), the panel says so; replace or clear it in the
+settings, and the plugin fetches again at once.
 
 ## What it does
 
