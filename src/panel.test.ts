@@ -111,6 +111,12 @@ describe("Pull requests panel", () => {
     expect(input.value).toBe(" tokio-rs/tokio ");
   });
 
+  it("opens the plugin's settings in the plugin manager, with nothing but the message type", () => {
+    fromHost({ type: "panel.state_update", state: STATE });
+    document.getElementById("settings")?.click();
+    expect(sent).toEqual([{ type: "rim.settings.open" }]);
+  });
+
   it("shows GitHub's refusal and turns the form off when the list is full or nobody is signed in", () => {
     fromHost({
       type: "panel.state_update",

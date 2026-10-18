@@ -1,5 +1,6 @@
-// The GitHub REST API calls of the plugin: open pull requests of a public
-// repository, without a token, and what GitHub's refusals mean for a person.
+// The GitHub REST API calls of the plugin: open pull requests of a repository,
+// with the person's own token when they saved one, and what GitHub's refusals
+// mean for a person. No message here ever carries the token.
 
 /** One open pull request, as the panel shows it. */
 export interface Pull {
@@ -13,14 +14,22 @@ export interface Pull {
   draft: boolean;
 }
 
-/** GitHub said no; `rateLimitedUntil` is set when the hourly limit is used up. */
+/**
+ * GitHub said no; `rateLimitedUntil` is set when the hourly limit is used up, and
+ * `tokenRejected` when GitHub refused the token the request carried.
+ */
 export class GitHubError extends Error {
   readonly rateLimitedUntil: number | null;
+  readonly tokenRejected: boolean;
 
-  constructor(message: string, rateLimitedUntil: number | null = null) {
+  constructor(
+    message: string,
+    options: { rateLimitedUntil?: number | null; tokenRejected?: boolean } = {},
+  ) {
     super(message);
     this.name = "GitHubError";
-    this.rateLimitedUntil = rateLimitedUntil;
+    this.rateLimitedUntil = options.rateLimitedUntil ?? null;
+    this.tokenRejected = options.tokenRejected ?? false;
   }
 }
 
@@ -68,14 +77,23 @@ function clock(ms: number): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-/** Fetch the open pull requests of `repo`. */
-export async function fetchPulls(repo: string, fetchImpl: typeof fetch): Promise<Pull[]> {
+/**
+ * Fetch the open pull requests of `repo`, sending `token` as a bearer token when it is
+ * not null and nothing but the `Accept` header when it is.
+ */
+export async function fetchPulls(
+  repo: string,
+  fetchImpl: typeof fetch,
+  token: string | null = null,
+): Promise<Pull[]> {
+  const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
+  if (token !== null) headers.Authorization = `Bearer ${token}`;
   let response: Response;
   try {
     response = await fetchImpl(
       `https://api.github.com/repos/${repo}/pulls?state=open&per_page=30`,
       {
-        headers: { Accept: "application/vnd.github+json" },
+        headers,
       },
     );
   } catch {
@@ -89,11 +107,26 @@ export async function fetchPulls(repo: string, fetchImpl: typeof fetch): Promise
   ) {
     const reset = Number(response.headers.get("x-ratelimit-reset"));
     const until = Number.isFinite(reset) && reset > 0 ? reset * 1000 : Date.now() + 60 * 60 * 1000;
+    const limit =
+      token === null
+        ? "the 60 requests an hour it allows without a token are used up"
+        : "the requests an hour it allows your token are used up";
+    throw new GitHubError(`GitHub refused: ${limit}. Try again after ${clock(until)}.`, {
+      rateLimitedUntil: until,
+    });
+  }
+  if (response.status === 401 && token !== null) {
     throw new GitHubError(
-      `GitHub refused: the 60 requests an hour it allows without a token are used up. Try again after ${clock(until)}.`,
-      until,
+      "GitHub rejected the token in the plugin's settings: it may have expired or been revoked. Replace or clear it there.",
+      { tokenRejected: true },
     );
   }
-  if (response.status === 404) throw new GitHubError(`${repo} was not found, or it is private.`);
+  if (response.status === 404) {
+    throw new GitHubError(
+      token === null
+        ? `${repo} was not found, or it is private.`
+        : `${repo} was not found, or your token cannot read it.`,
+    );
+  }
   throw new GitHubError(`GitHub answered ${response.status} for ${repo}.`);
 }
