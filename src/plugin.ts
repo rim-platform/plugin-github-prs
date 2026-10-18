@@ -26,9 +26,9 @@ const STORAGE_KEY = "repos";
 export const TOKEN_SETTING = "github_token";
 /** What a token sent in a header can hold: printable ASCII without spaces. */
 const TOKEN_CHARS = /^[\x21-\x7e]+$/;
-/** The notice while the saved token cannot be sent; it never repeats the value. */
+/** The notice while the saved token cannot be sent, which holds every fetch back; it never repeats the value. */
 export const INVALID_TOKEN_NOTICE =
-  "The GitHub token in this plugin's settings is not valid, so it was not sent; paste it again.";
+  "The GitHub token in this plugin's settings is not valid; paste it again or clear it.";
 /** The list a person starts with until they save one of their own: the project's repositories. */
 export const DEFAULT_REPOS: readonly string[] = ["rim-platform/rim-ui", "rim-platform/rim-server"];
 
@@ -135,9 +135,9 @@ export function createPlugin(options: PluginOptions = {}) {
    */
   function setToken(next: string | null, status: TokenStatus): boolean {
     if (next === token && status === tokenStatus) return false;
+    const blocked = now() < rateLimitedUntil || tokenRejected || tokenStatus === "unusable";
     token = next;
     tokenStatus = status;
-    const blocked = now() < rateLimitedUntil || tokenRejected;
     rateLimitedUntil = 0;
     tokenRejected = false;
     if (blocked) {
@@ -185,8 +185,6 @@ export function createPlugin(options: PluginOptions = {}) {
         return " The token in this plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
       case "unreadable":
         return " The plugin's settings could not be read, so the token in them was not used.";
-      case "unusable":
-        return ` ${INVALID_TOKEN_NOTICE}`;
       default:
         return "";
     }
@@ -202,6 +200,12 @@ export function createPlugin(options: PluginOptions = {}) {
   /** Fetch `targets`, stopping at the first refusal of the hourly limit. */
   async function fetchRepos(host: Host, targets: RepoState[]): Promise<void> {
     if (now() < rateLimitedUntil) return;
+    // A token that cannot be sent holds every fetch back, as a rejected one does,
+    // until the person replaces or clears it.
+    if (tokenStatus === "unusable") {
+      notice = INVALID_TOKEN_NOTICE;
+      return;
+    }
     loading = true;
     await publish(host);
     for (const target of targets) {
@@ -241,6 +245,11 @@ export function createPlugin(options: PluginOptions = {}) {
       await publish(host);
       return notice ?? "GitHub refused; try again later.";
     }
+    if (tokenStatus === "unusable") {
+      notice = INVALID_TOKEN_NOTICE;
+      await publish(host);
+      return notice;
+    }
     if (fetchedAt !== null && now() - fetchedAt < REFRESH_FLOOR_MS) {
       notice =
         token === null
@@ -252,7 +261,6 @@ export function createPlugin(options: PluginOptions = {}) {
     notice = null;
     fetchedAt = now();
     await fetchRepos(host, repos);
-    if (tokenStatus === "unusable") notice ??= INVALID_TOKEN_NOTICE;
     await publish(host);
     const open = repos.reduce((sum, r) => sum + r.pulls.length, 0);
     return (
@@ -335,20 +343,12 @@ export function createPlugin(options: PluginOptions = {}) {
       await refresh(host);
     },
     // A save, or another account signing in: the whole set. A new token fetches
-    // again at once when GitHub had refused the old one; one that cannot be sent
+    // again at once when the old one held the list back; one that cannot be sent
     // says so at once.
     async onSettingsChanged(values, host) {
       const blocked = applySettings(values);
       await loaded;
-      if (blocked) {
-        await refresh(host);
-      } else if (tokenStatus === "unusable" && notice === null) {
-        notice = INVALID_TOKEN_NOTICE;
-        await publish(host);
-      } else if (tokenStatus !== "unusable" && notice === INVALID_TOKEN_NOTICE) {
-        notice = null;
-        await publish(host);
-      }
+      if (blocked || tokenStatus === "unusable") await refresh(host);
     },
     onShutdown() {
       if (timer !== null) clearInterval(timer);

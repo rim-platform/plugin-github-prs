@@ -323,18 +323,18 @@ describe("the GitHub token setting", () => {
     t.clock.now += REFRESH_FLOOR_MS;
     await t.host.execute("refresh");
     expect(t.github.headers.at(-1)).toEqual({ Accept: "application/vnd.github+json" });
-    // A value saved under another type, or one no token can be, is not sent.
+    // A value saved under another type counts as none.
     t.host.changeSettings({ github_token: 42 });
     t.clock.now += REFRESH_FLOOR_MS;
     await t.host.execute("refresh");
+    expect(t.github.headers.at(-1)).toEqual({ Accept: "application/vnd.github+json" });
+    // One no token can be is never sent, and nothing is fetched while it is saved.
+    const before = t.github.requests.length;
     t.host.changeSettings({ github_token: "two words" });
     await until(() => t.panel().notice === INVALID_TOKEN_NOTICE);
     t.clock.now += REFRESH_FLOOR_MS;
     await t.host.execute("refresh");
-    expect(t.github.headers.slice(-2)).toEqual([
-      { Accept: "application/vnd.github+json" },
-      { Accept: "application/vnd.github+json" },
-    ]);
+    expect(t.github.requests).toHaveLength(before);
     await t.host.shutdown();
   });
 
@@ -445,42 +445,45 @@ describe("the GitHub token setting", () => {
     await t.host.shutdown();
   });
 
-  it("does not send a token no header can carry, and says to paste it again", async () => {
+  it("holds every fetch back while the saved token is not valid, without falling back", async () => {
     const broken = "ghp_abc\ndef\u00e9secretvalue";
     const t = start(["rust-lang/rust"], { settings: { github_token: broken } });
     await t.host.handshake();
-    await until(loaded(t));
-    expect(t.github.headers).toEqual([{ Accept: "application/vnd.github+json" }]);
-    expect(t.panel().notice).toBe(INVALID_TOKEN_NOTICE);
-    expect(t.panel().repos[0].pulls).toHaveLength(2);
+    await until(() => t.panel()?.notice === INVALID_TOKEN_NOTICE);
+    expect(INVALID_TOKEN_NOTICE).toBe(
+      "The GitHub token in this plugin's settings is not valid; paste it again or clear it.",
+    );
+    // Neither with the token nor without one: nothing reaches GitHub.
+    expect(t.github.requests).toEqual([]);
     t.clock.now += REFRESH_FLOOR_MS;
     expect((await t.host.execute("refresh")).result?.message).toBe(INVALID_TOKEN_NOTICE);
-
-    // With the hourly limit used up, the refusal names the token as the reason.
-    t.github.limit();
-    t.clock.now += REFRESH_FLOOR_MS;
-    const limited = (await t.host.execute("refresh")).result?.message ?? "";
-    expect(limited).toMatch(LIMIT_MESSAGE);
-    expect(limited.endsWith(` ${INVALID_TOKEN_NOTICE}`)).toBe(true);
+    expect((await t.host.execute("add_repo", { repo: "tokio-rs/tokio" })).result?.message).toBe(
+      INVALID_TOKEN_NOTICE,
+    );
+    expect(t.github.requests).toEqual([]);
     expect(everythingSent(t)).not.toContain("secretvalue");
 
-    // A valid token replaces it: the notice goes and the next fetch carries it.
-    t.github.limit(false);
+    // A valid token replaces it: the notice goes and the next fetch carries it at once.
     t.host.changeSettings({ github_token: TOKEN });
-    await until(() => t.github.headers.at(-1)?.Authorization === `Bearer ${TOKEN}`);
-    await until(() => !t.panel().loading);
+    await until(() => t.github.requests.length === 2 && !t.panel().loading);
+    expect(t.github.headers.map((h) => h.Authorization)).toEqual([
+      `Bearer ${TOKEN}`,
+      `Bearer ${TOKEN}`,
+    ]);
     expect(t.panel().notice).toBeNull();
     await t.host.shutdown();
   });
 
-  it("shows a token that cannot be sent as soon as it is saved, and drops the notice once cleared", async () => {
+  it("shows a token that cannot be sent as soon as it is saved, and fetches without one once cleared", async () => {
     const t = start(["rust-lang/rust"], { settings: {} });
     await t.host.handshake();
     await until(loaded(t));
     t.host.changeSettings({ github_token: "github_pat_ with a space" });
     await until(() => t.panel().notice === INVALID_TOKEN_NOTICE);
+    expect(t.github.requests).toHaveLength(1);
     t.host.changeSettings({});
-    await until(() => t.panel().notice === null);
+    await until(() => t.github.requests.length === 2 && !t.panel().loading);
+    expect(t.panel().notice).toBeNull();
     expect(t.github.headers.every((h) => h.Authorization === undefined)).toBe(true);
     await t.host.shutdown();
   });

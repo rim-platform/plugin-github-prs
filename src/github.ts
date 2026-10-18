@@ -36,7 +36,8 @@ export class GitHubError extends Error {
 const REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const AVATARS = "https://avatars.githubusercontent.com/";
 /** The one origin a request may carry the token to. */
-const API = "https://api.github.com/";
+const API_ORIGIN = "https://api.github.com";
+const API = `${API_ORIGIN}/`;
 
 /** `owner/name` trimmed, or null when it is not a repository name. */
 export function normalizeRepo(value: unknown): string | null {
@@ -82,13 +83,21 @@ function clock(ms: number): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The headers of a request to `url`: `Accept`, and `token` as a bearer token only when
  * there is one and `url` is on api.github.com.
  */
 export function requestHeaders(url: string, token: string | null): Record<string, string> {
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
-  if (token !== null && url.startsWith(API)) headers.Authorization = `Bearer ${token}`;
+  if (token !== null && originOf(url) === API_ORIGIN) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
 

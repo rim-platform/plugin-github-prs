@@ -24,8 +24,9 @@ the version in `rim-plugin.json` and in `package.json`.
 - A **GitHub token** setting, optional and secret, in the desktop app only: with your own token
   GitHub allows 5,000 requests an hour instead of 60. The desktop keeps it in its encrypted
   secret vault on the device and the plugin sends it only to `api.github.com`; the web app has
-  no secret settings, so the plugin runs without a token there. A token that cannot be sent is
-  named in the panel. The panel's foot opens the settings. No new permission is asked for.
+  no secret settings, so the plugin runs without a token there. A saved token that is not valid
+  stops every fetch, and the panel asks to paste it again or clear it. The panel's foot opens
+  the settings. No new permission is asked for.
 
 ### Changed
 

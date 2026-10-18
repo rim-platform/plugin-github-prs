@@ -30,19 +30,24 @@ stays empty.
 
 The plugin has one setting, **GitHub token**, which is optional and works only in the RIM
 desktop app. Open it from the plugin's row in Settings → Plugins (**Settings**), from its row
-in the side rail's **Plugins** menu, or from **settings** at the foot of the panel. To make a
-token:
+in the side rail's **Plugins** menu, or from **settings** at the foot of the panel.
+
+We recommend a fine-grained personal access token with **Public repositories** (read-only)
+access and an expiry date: it raises the limit and can read nothing but public repositories.
+To make one:
 
 1. On GitHub, open Settings → Developer settings → Personal access tokens → Fine-grained
    tokens → Generate new token.
 2. Give it a name and an expiry date.
-3. Under **Repository access**, pick **Public repositories (read-only)**. That is all the
-   plugin needs: the token can read public repositories and nothing else.
-4. Generate the token and paste it into the field.
-
-Keep the token to public repositories. A token with access to private repositories works too,
-and then the pull requests of any private repository on your list appear in the panel, titles
-and authors included, for anyone who sees your screen.
+3. Under **Repository access**, pick **Public repositories**. That is all the plugin needs for
+   public repositories, and it leaves the token read-only.
+4. To list the pull requests of private repositories too, pick **Only select repositories**
+   instead, with just the repositories you want, and under **Permissions** give **Pull
+   requests** read-only access (GitHub adds **Metadata** read-only on its own). Their pull
+   requests, titles and authors included, then appear in the panel for anyone who sees your
+   screen, so choose only the ones you want there. The plugin only reads; never give the token
+   write access.
+5. Generate the token and paste it into the field.
 
 Where it is kept:
 
@@ -55,11 +60,12 @@ Where it is kept:
   and the plugin runs without a token there.
 
 The plugin checks the token before it sends it: one with a space, a line break or a character
-outside ASCII is not sent, and the panel asks you to paste it again. When GitHub's limit is
-used up, the panel says what you can do: add a token in the desktop app, unlock the desktop's
-secret vault if it holds one that could not be read, or wait until the time it names. When
-GitHub rejects the token (expired, revoked), the panel says so; replace or clear it in the
-settings, and the plugin fetches again at once.
+outside ASCII is never sent, and the plugin fetches nothing, with or without a token, until
+you paste it again or clear it. When GitHub's limit is used up, the panel says what you can
+do: add a token in the desktop app, unlock the desktop's secret vault if it holds one that
+could not be read, or wait until the time it names. When GitHub rejects the token (expired,
+revoked), the panel says so; replace or clear it in the settings, and the plugin fetches again
+at once.
 
 ## What it does
 
