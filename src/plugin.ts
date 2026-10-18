@@ -1,7 +1,8 @@
 // The GitHub Pull Requests plugin: a WebSandboxed plugin that keeps up to 10
-// public repositories in the host's store and shows their open pull requests
-// in its panel. It talks only to api.github.com, without a token, so it
-// refreshes at most every 2 minutes and says when GitHub refuses.
+// repositories in the host's store and shows their open pull requests in its
+// panel. It talks only to api.github.com, with the GitHub token the person saved
+// in its settings or else without one, refreshes at most every 2 minutes and
+// says when GitHub refuses.
 
 import {
   definePlugin,
@@ -21,8 +22,23 @@ export const REFRESH_FLOOR_MS = 2 * 60 * 1000;
 /** How often the plugin refreshes on its own while it runs. */
 export const AUTO_REFRESH_MS = 5 * 60 * 1000;
 const STORAGE_KEY = "repos";
+/** The key of the GitHub token in the manifest's `settings_schema`. */
+export const TOKEN_SETTING = "github_token";
+/** What a token sent in a header can hold: printable ASCII without spaces. */
+const TOKEN_CHARS = /^[\x21-\x7e]+$/;
+/** The notice while the saved token cannot be sent, which holds every fetch back; it never repeats the value. */
+export const INVALID_TOKEN_NOTICE =
+  "The GitHub token in this plugin's settings is not valid; paste it again or clear it.";
 /** The list a person starts with until they save one of their own: the project's repositories. */
 export const DEFAULT_REPOS: readonly string[] = ["rim-platform/rim-ui", "rim-platform/rim-server"];
+
+/**
+ * Where the token stands: none saved, `set` and sent, `locked` while the desktop's
+ * secret vault cannot be read, `unreadable` when reading the settings failed otherwise,
+ * `unsupported` on a host from before settings, and `unusable` when the saved value
+ * cannot be a token.
+ */
+type TokenStatus = "none" | "set" | "locked" | "unreadable" | "unsupported" | "unusable";
 
 /** One repository in the panel. */
 export interface RepoState {
@@ -59,8 +75,11 @@ export function createPlugin(options: PluginOptions = {}) {
   let notice: string | null = null;
   let panelDenied = false;
   let timer: ReturnType<typeof setInterval> | null = null;
-  // Commands wait for the saved list, so one that arrives right after the
-  // handshake or a sign-in does not race with loading it.
+  let token: string | null = null;
+  let tokenStatus: TokenStatus = "none";
+  let tokenRejected = false;
+  // Commands wait for the saved list and settings, so one that arrives right
+  // after the handshake or a sign-in does not race with loading them.
   let loaded: Promise<void> = Promise.resolve();
 
   const state = (): PanelState => ({
@@ -110,6 +129,67 @@ export function createPlugin(options: PluginOptions = {}) {
     }
   }
 
+  /**
+   * Take a new token, or none. GitHub's refusals were about the old one, so they are
+   * forgotten; answers whether one of them was holding the list back.
+   */
+  function setToken(next: string | null, status: TokenStatus): boolean {
+    if (next === token && status === tokenStatus) return false;
+    const blocked = now() < rateLimitedUntil || tokenRejected || tokenStatus === "unusable";
+    token = next;
+    tokenStatus = status;
+    rateLimitedUntil = 0;
+    tokenRejected = false;
+    if (blocked) {
+      notice = null;
+      fetchedAt = null;
+    }
+    return blocked;
+  }
+
+  // A value saved under an older version may not fit, so it is checked.
+  function applySettings(values: Readonly<Record<string, unknown>>): boolean {
+    const saved = values[TOKEN_SETTING];
+    const value = typeof saved === "string" ? saved.trim() : "";
+    if (value === "") return setToken(null, "none");
+    return TOKEN_CHARS.test(value) ? setToken(value, "set") : setToken(null, "unusable");
+  }
+
+  /** Read the settings; a failed read leaves the plugin without a token and says why. */
+  async function readSettings(host: Host): Promise<void> {
+    try {
+      applySettings(await host.settings.get());
+    } catch (error) {
+      let status: TokenStatus = "unsupported";
+      if (!(error instanceof HostRequestError && error.code === ErrorCode.METHOD_NOT_FOUND)) {
+        const data = error instanceof HostRequestError ? error.data : undefined;
+        const locked =
+          typeof data === "object" &&
+          data !== null &&
+          (data as { reason?: unknown }).reason === "secretsLocked";
+        status = locked ? "locked" : "unreadable";
+        if (status !== tokenStatus) {
+          host.log.warn(`settings not read: ${(error as Error).message}`);
+        }
+      }
+      setToken(null, status);
+    }
+  }
+
+  /** What the person can do about the token when GitHub's limit is used up. */
+  function tokenHint(): string {
+    switch (tokenStatus) {
+      case "none":
+        return " To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: the side rail's Plugins menu, or Settings → Plugins.";
+      case "locked":
+        return " The token in this plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
+      case "unreadable":
+        return " The plugin's settings could not be read, so the token in them was not used.";
+      default:
+        return "";
+    }
+  }
+
   async function save(host: Host): Promise<void> {
     await host.storage.set(
       STORAGE_KEY,
@@ -120,16 +200,30 @@ export function createPlugin(options: PluginOptions = {}) {
   /** Fetch `targets`, stopping at the first refusal of the hourly limit. */
   async function fetchRepos(host: Host, targets: RepoState[]): Promise<void> {
     if (now() < rateLimitedUntil) return;
+    // A token that cannot be sent holds every fetch back, as a rejected one does,
+    // until the person replaces or clears it.
+    if (tokenStatus === "unusable") {
+      notice = INVALID_TOKEN_NOTICE;
+      return;
+    }
     loading = true;
     await publish(host);
     for (const target of targets) {
       try {
-        target.pulls = await fetchPulls(target.repo, fetchImpl);
+        target.pulls = await fetchPulls(target.repo, fetchImpl, token);
         target.error = null;
       } catch (error) {
-        const refusal = error instanceof GitHubError ? error : new GitHubError(String(error));
+        const refusal =
+          error instanceof GitHubError
+            ? error
+            : new GitHubError("The pull requests could not be read.");
         if (refusal.rateLimitedUntil !== null) {
           rateLimitedUntil = refusal.rateLimitedUntil;
+          notice = refusal.message + tokenHint();
+          break;
+        }
+        if (refusal.tokenRejected) {
+          tokenRejected = true;
           notice = refusal.message;
           break;
         }
@@ -141,6 +235,8 @@ export function createPlugin(options: PluginOptions = {}) {
 
   /** Fetch every repository, unless the list was fetched under 2 minutes ago or GitHub said wait. */
   async function refresh(host: Host): Promise<string> {
+    // The host sends no change once a locked vault opens, so the plugin asks again.
+    if (tokenStatus === "locked" || tokenStatus === "unreadable") await readSettings(host);
     if (repos.length === 0) {
       await publish(host);
       return "No repositories yet: add one in the panel.";
@@ -149,9 +245,16 @@ export function createPlugin(options: PluginOptions = {}) {
       await publish(host);
       return notice ?? "GitHub refused; try again later.";
     }
+    if (tokenStatus === "unusable") {
+      notice = INVALID_TOKEN_NOTICE;
+      await publish(host);
+      return notice;
+    }
     if (fetchedAt !== null && now() - fetchedAt < REFRESH_FLOOR_MS) {
       notice =
-        "Fetched less than 2 minutes ago. GitHub allows 60 requests an hour without a token.";
+        token === null
+          ? "Fetched less than 2 minutes ago. GitHub allows 60 requests an hour without a token."
+          : "Fetched less than 2 minutes ago.";
       await publish(host);
       return notice;
     }
@@ -164,6 +267,11 @@ export function createPlugin(options: PluginOptions = {}) {
       notice ??
       `${open} open pull request${open === 1 ? "" : "s"} in ${repos.length} repositor${repos.length === 1 ? "y" : "ies"}`
     );
+  }
+
+  /** Load the signed-in user's list and the settings, which belong to them too. */
+  async function prepare(host: Host): Promise<void> {
+    await Promise.all([load(host), readSettings(host)]);
   }
 
   function repoArgument(args: Readonly<Record<string, unknown>>): string {
@@ -224,15 +332,23 @@ export function createPlugin(options: PluginOptions = {}) {
       },
     },
     async onReady(host) {
-      loaded = load(host);
+      loaded = prepare(host);
       await loaded;
       await refresh(host);
       timer = setInterval(() => void refresh(host), AUTO_REFRESH_MS);
     },
     async onPrincipalChanged(_principal, host) {
-      loaded = load(host);
+      loaded = prepare(host);
       await loaded;
       await refresh(host);
+    },
+    // A save, or another account signing in: the whole set. A new token fetches
+    // again at once when the old one held the list back; one that cannot be sent
+    // says so at once.
+    async onSettingsChanged(values, host) {
+      const blocked = applySettings(values);
+      await loaded;
+      if (blocked || tokenStatus === "unusable") await refresh(host);
     },
     onShutdown() {
       if (timer !== null) clearInterval(timer);

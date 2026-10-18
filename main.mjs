@@ -26,7 +26,9 @@ var Method = {
   principalChanged: "rim.principal.changed",
   principalsRemapped: "rim.principals.remapped",
   commandExecute: "rim.command.execute",
-  log: "rim.log"
+  log: "rim.log",
+  settingsGet: "rim.settings.get",
+  settingsChanged: "rim.settings.changed"
 };
 
 // node_modules/@rim-platform/plugin-sdk/dist/errors.js
@@ -537,6 +539,8 @@ var Session = class {
       this.onPrincipalChanged(params);
     } else if (method === Method.principalsRemapped) {
       this.onPrincipalsRemapped(params);
+    } else if (method === Method.settingsChanged) {
+      this.onSettingsChanged(params);
     }
   }
   onResponse(id, frame) {
@@ -630,6 +634,15 @@ var Session = class {
       return;
     void this.callHook("onPrincipalsRemapped", () => this.definition.onPrincipalsRemapped?.(mappings, this.host));
   }
+  onSettingsChanged(params) {
+    const values = isRecord(params) ? params.values : void 0;
+    if (!isRecord(values)) {
+      this.log("warn", "ignored rim.settings.changed: values must be an object");
+      return;
+    }
+    const settings = Object.freeze({ ...values });
+    void this.callHook("onSettingsChanged", () => this.definition.onSettingsChanged?.(settings, this.host));
+  }
   request(method, params) {
     if (this.closed || this.stopping || !this.ready) {
       const message = this.ready ? "the connection to the host is closing" : "the handshake has not finished";
@@ -691,6 +704,18 @@ var Session = class {
         },
         set: async (key, value) => {
           await session.request(STORAGE_SET_METHOD, { key, value });
+        }
+      }),
+      settings: Object.freeze({
+        get: async () => {
+          const result = await session.request(Method.settingsGet, void 0);
+          if (!isRecord(result) || !isRecord(result.values)) {
+            throw new HostRequestError(Method.settingsGet, {
+              code: ErrorCode.INTERNAL_ERROR,
+              message: "the host answered without a values object"
+            });
+          }
+          return Object.freeze({ ...result.values });
         }
       }),
       chat: Object.freeze({
@@ -836,17 +861,23 @@ var definePlugin = createDefinePlugin(browserPlatform);
 // src/github.ts
 var GitHubError = class extends Error {
   rateLimitedUntil;
-  constructor(message, rateLimitedUntil = null) {
+  tokenRejected;
+  constructor(message, options = {}) {
     super(message);
     this.name = "GitHubError";
-    this.rateLimitedUntil = rateLimitedUntil;
+    this.rateLimitedUntil = options.rateLimitedUntil ?? null;
+    this.tokenRejected = options.tokenRejected ?? false;
   }
 };
 var REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 var AVATARS = "https://avatars.githubusercontent.com/";
+var API_ORIGIN = "https://api.github.com";
+var API = `${API_ORIGIN}/`;
 function normalizeRepo(value) {
   if (typeof value !== "string") return null;
   const repo = value.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/+$/, "");
+  const name = repo.slice(repo.indexOf("/") + 1);
+  if (name === "." || name === "..") return null;
   return REPO.test(repo) && !repo.endsWith(".git") ? repo : null;
 }
 function isRecord2(value) {
@@ -873,15 +904,23 @@ function clock(ms) {
   const date = new Date(ms);
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
-async function fetchPulls(repo, fetchImpl) {
+function originOf(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+function requestHeaders(url, token) {
+  const headers = { Accept: "application/vnd.github+json" };
+  if (token !== null && originOf(url) === API_ORIGIN) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+async function fetchPulls(repo, fetchImpl, token = null) {
+  const url = `${API}repos/${repo}/pulls?state=open&per_page=30`;
   let response;
   try {
-    response = await fetchImpl(
-      `https://api.github.com/repos/${repo}/pulls?state=open&per_page=30`,
-      {
-        headers: { Accept: "application/vnd.github+json" }
-      }
-    );
+    response = await fetchImpl(url, { headers: requestHeaders(url, token) });
   } catch {
     throw new GitHubError("GitHub could not be reached.");
   }
@@ -890,12 +929,22 @@ async function fetchPulls(repo, fetchImpl) {
   if ((response.status === 403 || response.status === 429) && (remaining === "0" || response.status === 429)) {
     const reset = Number(response.headers.get("x-ratelimit-reset"));
     const until = Number.isFinite(reset) && reset > 0 ? reset * 1e3 : Date.now() + 60 * 60 * 1e3;
+    const limit = token === null ? "the 60 requests an hour it allows without a token are used up" : "the requests an hour it allows your token are used up";
+    throw new GitHubError(`GitHub refused: ${limit}. Try again after ${clock(until)}.`, {
+      rateLimitedUntil: until
+    });
+  }
+  if (response.status === 401 && token !== null) {
     throw new GitHubError(
-      `GitHub refused: the 60 requests an hour it allows without a token are used up. Try again after ${clock(until)}.`,
-      until
+      "GitHub rejected the token in this plugin's settings: it may have expired or been revoked. Replace or clear it there.",
+      { tokenRejected: true }
     );
   }
-  if (response.status === 404) throw new GitHubError(`${repo} was not found, or it is private.`);
+  if (response.status === 404) {
+    throw new GitHubError(
+      token === null ? `${repo} was not found, or it is private.` : `${repo} was not found, or your token cannot read it.`
+    );
+  }
   throw new GitHubError(`GitHub answered ${response.status} for ${repo}.`);
 }
 
@@ -906,6 +955,9 @@ var MAX_REPOS = 10;
 var REFRESH_FLOOR_MS = 2 * 60 * 1e3;
 var AUTO_REFRESH_MS = 5 * 60 * 1e3;
 var STORAGE_KEY = "repos";
+var TOKEN_SETTING = "github_token";
+var TOKEN_CHARS = /^[\x21-\x7e]+$/;
+var INVALID_TOKEN_NOTICE = "The GitHub token in this plugin's settings is not valid; paste it again or clear it.";
 var DEFAULT_REPOS = ["rim-platform/rim-ui", "rim-platform/rim-server"];
 function createPlugin(options = {}) {
   const fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
@@ -918,6 +970,9 @@ function createPlugin(options = {}) {
   let notice = null;
   let panelDenied = false;
   let timer = null;
+  let token = null;
+  let tokenStatus = "none";
+  let tokenRejected = false;
   let loaded = Promise.resolve();
   const state = () => ({
     repos,
@@ -957,6 +1012,53 @@ function createPlugin(options = {}) {
       host.log.warn(`could not read the saved repositories: ${error.message}`);
     }
   }
+  function setToken(next, status) {
+    if (next === token && status === tokenStatus) return false;
+    const blocked = now() < rateLimitedUntil || tokenRejected || tokenStatus === "unusable";
+    token = next;
+    tokenStatus = status;
+    rateLimitedUntil = 0;
+    tokenRejected = false;
+    if (blocked) {
+      notice = null;
+      fetchedAt = null;
+    }
+    return blocked;
+  }
+  function applySettings(values) {
+    const saved = values[TOKEN_SETTING];
+    const value = typeof saved === "string" ? saved.trim() : "";
+    if (value === "") return setToken(null, "none");
+    return TOKEN_CHARS.test(value) ? setToken(value, "set") : setToken(null, "unusable");
+  }
+  async function readSettings(host) {
+    try {
+      applySettings(await host.settings.get());
+    } catch (error) {
+      let status = "unsupported";
+      if (!(error instanceof HostRequestError && error.code === ErrorCode.METHOD_NOT_FOUND)) {
+        const data = error instanceof HostRequestError ? error.data : void 0;
+        const locked = typeof data === "object" && data !== null && data.reason === "secretsLocked";
+        status = locked ? "locked" : "unreadable";
+        if (status !== tokenStatus) {
+          host.log.warn(`settings not read: ${error.message}`);
+        }
+      }
+      setToken(null, status);
+    }
+  }
+  function tokenHint() {
+    switch (tokenStatus) {
+      case "none":
+        return " To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: the side rail's Plugins menu, or Settings \u2192 Plugins.";
+      case "locked":
+        return " The token in this plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
+      case "unreadable":
+        return " The plugin's settings could not be read, so the token in them was not used.";
+      default:
+        return "";
+    }
+  }
   async function save(host) {
     await host.storage.set(
       STORAGE_KEY,
@@ -965,16 +1067,25 @@ function createPlugin(options = {}) {
   }
   async function fetchRepos(host, targets) {
     if (now() < rateLimitedUntil) return;
+    if (tokenStatus === "unusable") {
+      notice = INVALID_TOKEN_NOTICE;
+      return;
+    }
     loading = true;
     await publish(host);
     for (const target of targets) {
       try {
-        target.pulls = await fetchPulls(target.repo, fetchImpl);
+        target.pulls = await fetchPulls(target.repo, fetchImpl, token);
         target.error = null;
       } catch (error) {
-        const refusal = error instanceof GitHubError ? error : new GitHubError(String(error));
+        const refusal = error instanceof GitHubError ? error : new GitHubError("The pull requests could not be read.");
         if (refusal.rateLimitedUntil !== null) {
           rateLimitedUntil = refusal.rateLimitedUntil;
+          notice = refusal.message + tokenHint();
+          break;
+        }
+        if (refusal.tokenRejected) {
+          tokenRejected = true;
           notice = refusal.message;
           break;
         }
@@ -984,6 +1095,7 @@ function createPlugin(options = {}) {
     loading = false;
   }
   async function refresh(host) {
+    if (tokenStatus === "locked" || tokenStatus === "unreadable") await readSettings(host);
     if (repos.length === 0) {
       await publish(host);
       return "No repositories yet: add one in the panel.";
@@ -992,8 +1104,13 @@ function createPlugin(options = {}) {
       await publish(host);
       return notice ?? "GitHub refused; try again later.";
     }
+    if (tokenStatus === "unusable") {
+      notice = INVALID_TOKEN_NOTICE;
+      await publish(host);
+      return notice;
+    }
     if (fetchedAt !== null && now() - fetchedAt < REFRESH_FLOOR_MS) {
-      notice = "Fetched less than 2 minutes ago. GitHub allows 60 requests an hour without a token.";
+      notice = token === null ? "Fetched less than 2 minutes ago. GitHub allows 60 requests an hour without a token." : "Fetched less than 2 minutes ago.";
       await publish(host);
       return notice;
     }
@@ -1003,6 +1120,9 @@ function createPlugin(options = {}) {
     await publish(host);
     const open = repos.reduce((sum, r) => sum + r.pulls.length, 0);
     return notice ?? `${open} open pull request${open === 1 ? "" : "s"} in ${repos.length} repositor${repos.length === 1 ? "y" : "ies"}`;
+  }
+  async function prepare(host) {
+    await Promise.all([load(host), readSettings(host)]);
   }
   function repoArgument(args) {
     const repo = normalizeRepo(args.repo);
@@ -1060,15 +1180,23 @@ function createPlugin(options = {}) {
       }
     },
     async onReady(host) {
-      loaded = load(host);
+      loaded = prepare(host);
       await loaded;
       await refresh(host);
       timer = setInterval(() => void refresh(host), AUTO_REFRESH_MS);
     },
     async onPrincipalChanged(_principal, host) {
-      loaded = load(host);
+      loaded = prepare(host);
       await loaded;
       await refresh(host);
+    },
+    // A save, or another account signing in: the whole set. A new token fetches
+    // again at once when the old one held the list back; one that cannot be sent
+    // says so at once.
+    async onSettingsChanged(values, host) {
+      const blocked = applySettings(values);
+      await loaded;
+      if (blocked || tokenStatus === "unusable") await refresh(host);
     },
     onShutdown() {
       if (timer !== null) clearInterval(timer);

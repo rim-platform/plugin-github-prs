@@ -20,6 +20,7 @@
     notice: $("notice"),
     list: $("list"),
     empty: $("empty"),
+    settings: $("settings"),
   };
 
   function send(message) {
@@ -115,7 +116,7 @@
     });
     els.empty.hidden = state.repos.length > 0;
     els.empty.textContent = state.signedIn
-      ? "Add a public repository as owner/name to see its open pull requests."
+      ? "Add a repository as owner/name to see its open pull requests."
       : "Sign in to keep a list of repositories.";
   }
 
@@ -169,6 +170,10 @@
   });
   els.refresh.addEventListener("click", function () {
     run("refresh", {}, report);
+  });
+  // Opens the plugin's settings in the plugin manager; the panel never sees them.
+  els.settings.addEventListener("click", function () {
+    send({ type: "rim.settings.open" });
   });
   document.addEventListener("keydown", function (event) {
     if (event.target === els.repo) return;

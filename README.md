@@ -1,7 +1,7 @@
 # GitHub Pull Requests
 
 A [RIM](https://github.com/rim-platform) plugin that lists the open pull requests of up to 10
-public GitHub repositories in a panel: title, author, age and whether it is a draft. It starts
+GitHub repositories in a panel: title, author, age and whether it is a draft. It starts
 with the project's own repositories, `rim-platform/rim-ui` and `rim-platform/rim-server`; add
 and remove repositories as you like. It is a `WebSandboxed` plugin built on
 [`@rim-platform/plugin-sdk`](https://www.npmjs.com/package/@rim-platform/plugin-sdk): it runs in
@@ -18,11 +18,54 @@ for two permissions:
   `api.github.com` (the pull requests) and `avatars.githubusercontent.com` (the authors'
   pictures). The frame's content security policy blocks every other site.
 
-It uses no token, so it sees public repositories only. GitHub allows 60 requests an hour per
-IP address without one, so the plugin refreshes on its own every 5 minutes, at most every 2
-minutes when you ask, and stops asking and says so when GitHub refuses. Your list of
-repositories is kept in the app's plugin store for your account on that device. Until you
-change it, the list is the two project repositories; a list you emptied stays empty.
+Reading its own settings needs no permission. Without a token GitHub allows 60 requests an
+hour per IP address; with [your own token](#a-github-token), which works only in the RIM
+desktop app, it allows 5,000 an hour. Either way the plugin refreshes on its own every 5
+minutes, at most every 2 minutes when you ask, and stops asking and says so when GitHub
+refuses. Your list of repositories is kept in the app's plugin store for your account on that
+device. Until you change it, the list is the two project repositories; a list you emptied
+stays empty.
+
+## A GitHub token
+
+The plugin has one setting, **GitHub token**, which is optional and works only in the RIM
+desktop app. Open it from the plugin's row in Settings → Plugins (**Settings**), from its row
+in the side rail's **Plugins** menu, or from **settings** at the foot of the panel.
+
+We recommend a fine-grained personal access token with **Public repositories** (read-only)
+access and an expiry date: it raises the limit and can read nothing but public repositories.
+To make one:
+
+1. On GitHub, open Settings → Developer settings → Personal access tokens → Fine-grained
+   tokens → Generate new token.
+2. Give it a name and an expiry date.
+3. Under **Repository access**, pick **Public repositories**. That is all the plugin needs for
+   public repositories, and it leaves the token read-only.
+4. To list the pull requests of private repositories too, pick **Only select repositories**
+   instead, with just the repositories you want, and under **Permissions** give **Pull
+   requests** read-only access (GitHub adds **Metadata** read-only on its own). Their pull
+   requests, titles and authors included, then appear in the panel for anyone who sees your
+   screen, so choose only the ones you want there. The plugin only reads; never give the token
+   write access.
+5. Generate the token and paste it into the field.
+
+Where it is kept:
+
+- **On the desktop** the token is kept in the desktop app's encrypted secret vault on this
+  device, for your account. It is never synced to another device or sent to the RIM server,
+  the form shows only that it is set, and uninstalling the plugin deletes it. The plugin sends
+  it only to `api.github.com`, as `Authorization: Bearer`, and never stores it or puts it in a
+  message, the panel or the log.
+- **In the web app** there are no secret settings, so the field says it needs the desktop app
+  and the plugin runs without a token there.
+
+The plugin checks the token before it sends it: one with a space, a line break or a character
+outside ASCII is never sent, and the plugin fetches nothing, with or without a token, until
+you paste it again or clear it. When GitHub's limit is used up, the panel says what you can
+do: add a token in the desktop app, unlock the desktop's secret vault if it holds one that
+could not be read, or wait until the time it names. When GitHub rejects the token (expired,
+revoked), the panel says so; replace or clear it in the settings, and the plugin fetches again
+at once.
 
 ## What it does
 

@@ -149,6 +149,16 @@
         color: var(--color-rim-text-faint);
         font-size: 11px;
       }
+      footer button {
+        height: auto;
+        padding: 0;
+        border: none;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-decoration: underline;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -161,7 +171,8 @@
     <div id="list"></div>
     <div id="empty" class="empty">Waiting for the plugin…</div>
     <footer id="footer">
-      Public repositories only, fetched from GitHub without a token, at most every 2 minutes.
+      Fetched from GitHub at most every 2 minutes. A GitHub token in the plugin's
+      <button id="settings" type="button">settings</button> raises GitHub's hourly limit.
     </footer>
     <script src="app.js"></script>
   </body>
