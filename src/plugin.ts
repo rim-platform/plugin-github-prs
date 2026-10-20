@@ -180,7 +180,7 @@ export function createPlugin(options: PluginOptions = {}) {
   function tokenHint(): string {
     switch (tokenStatus) {
       case "none":
-        return " To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: the side rail's Plugins menu, or Settings → Plugins.";
+        return " To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: settings at the foot of the Pull requests panel, or Settings → Plugins.";
       case "locked":
         return " The token in this plugin's settings could not be read because the desktop's secret vault is locked; unlock it and refresh.";
       case "unreadable":
