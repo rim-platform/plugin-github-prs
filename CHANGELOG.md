@@ -19,6 +19,8 @@ the version in `rim-plugin.json` and in `package.json`.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-20
+
 ### Added
 
 - A **GitHub token** setting, optional and secret, in the desktop app only: with your own token
@@ -48,5 +50,6 @@ the version in `rim-plugin.json` and in `package.json`.
   `panels/`), so the desktop installs it from its git URL; each release attaches a
   `.rimbundle` for Install from link.
 
-[Unreleased]: https://github.com/rim-platform/plugin-github-prs/compare/v0.0.1...master
+[Unreleased]: https://github.com/rim-platform/plugin-github-prs/compare/v0.0.2...master
+[0.0.2]: https://github.com/rim-platform/plugin-github-prs/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/rim-platform/plugin-github-prs/releases/tag/v0.0.1
