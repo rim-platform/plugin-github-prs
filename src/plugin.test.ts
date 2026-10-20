@@ -345,7 +345,7 @@ describe("the GitHub token setting", () => {
     await until(() => typeof t.panel()?.notice === "string");
     expect(t.panel().notice).toMatch(LIMIT_MESSAGE);
     expect(t.panel().notice).toMatch(
-      /To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: the side rail's Plugins menu, or Settings → Plugins\.$/,
+      /To raise it, add a GitHub token in this plugin's settings in the RIM desktop app: settings at the foot of the Pull requests panel, or Settings → Plugins\.$/,
     );
     expect(t.github.requests).toHaveLength(1);
 

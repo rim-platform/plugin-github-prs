@@ -29,8 +29,9 @@ stays empty.
 ## A GitHub token
 
 The plugin has one setting, **GitHub token**, which is optional and works only in the RIM
-desktop app. Open it from the plugin's row in Settings → Plugins (**Settings**), from its row
-in the side rail's **Plugins** menu, or from **settings** at the foot of the panel.
+desktop app. Open it with **settings** at the foot of the panel or **Plugin settings** in the
+panel's header, with **Settings** on the plugin's row in Settings → Plugins, or with **Plugin
+settings: GitHub Pull Requests** in the command palette.
 
 We recommend a fine-grained personal access token with **Public repositories** (read-only)
 access and an expiry date: it raises the limit and can read nothing but public repositories.
@@ -81,8 +82,10 @@ links: following one would navigate the panel's frame, which closes it.
 
 ## Install
 
-Each way ends the same: RIM shows the plugin and its permissions, you approve them, enable the
-plugin and open **Pull requests** from the side rail.
+Each way ends the same: RIM shows the plugin and its permissions, **Approve and turn on**
+grants the ones you leave ticked and starts the plugin, and **GitHub Pull Requests** in the
+side rail's **Plugins** menu, or **Open Pull requests** in the command palette, opens its
+**Pull requests** panel.
 
 - **Install from git URL** (desktop): Settings → Plugins → Install from git URL, with
   `https://github.com/rim-platform/plugin-github-prs.git`. The desktop takes
@@ -92,9 +95,9 @@ plugin and open **Pull requests** from the side rail.
   link a [release](https://github.com/rim-platform/plugin-github-prs/releases) gives:
   `https://github.com/rim-platform/plugin-github-prs/releases/download/v<version>/chat.rim.github-prs-<version>.rimbundle#sha256=<hash>`.
   The app checks that the bundle hashes to the value after `#sha256=` before it installs
-  anything. Install from link with a GitHub release asset works on the desktop
-  once it fetches links natively (a rim-ui issue); in the browser, install from a workspace
-  registry or from a host that sends CORS headers.
+  anything. The desktop app fetches the link itself, so a release link installs there. GitHub
+  serves release assets without CORS headers, so the web app cannot fetch them: in the
+  browser, install from a workspace registry or from a host that sends CORS headers.
 - **Workspace registry**: when a workspace recommends or requires the plugin, the command
   palette's "Workspace plugins" offers it with its publisher's signature, and a required one
   is offered when the workspace opens. The app verifies the signed statement before it
