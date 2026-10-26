@@ -22,6 +22,8 @@ the version in `rim-plugin.json` and in `package.json`.
 ### Fixed
 
 - Document browser installation of pinned release links through an updated RIM server.
+- The panel's footer and the plugin's description say a GitHub token works only in the RIM
+  desktop app, instead of pointing web users to a setting the web app cannot keep.
 
 ## [0.0.2] - 2026-10-20
 

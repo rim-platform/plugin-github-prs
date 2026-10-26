@@ -133,6 +133,10 @@ describe("Pull requests panel", () => {
     );
   });
 
+  it("says a GitHub token raises the limit only in the desktop app", () => {
+    expect(document.getElementById("footer")?.textContent).toContain("RIM desktop app");
+  });
+
   it("says the plugin stopped once its state goes away", () => {
     fromHost({ type: "panel.state_update", state: STATE });
     fromHost({ type: "panel.state_update", state: null });

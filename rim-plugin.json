@@ -6,7 +6,7 @@
   "author": "RIM team",
   "runtime_kind": "WebSandboxed",
   "entrypoint": "main.mjs",
-  "description": "Lists the open pull requests of the GitHub repositories you choose. Talks only to GitHub, with your own token if you add one in its settings.",
+  "description": "Lists the open pull requests of the GitHub repositories you choose. Talks only to GitHub; in the RIM desktop app it can use your own token from its settings.",
   "capabilities": ["ui.panel", "network.fetch"],
   "network_origins": ["https://api.github.com", "https://avatars.githubusercontent.com"],
   "commands": [
