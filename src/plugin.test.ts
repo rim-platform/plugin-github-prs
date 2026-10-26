@@ -285,6 +285,11 @@ describe("the GitHub token setting", () => {
     expect(manifest.settings_schema[0]).not.toHaveProperty("default");
   });
 
+  it("says in its description that a token works only in the desktop app", () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, "utf8"));
+    expect(manifest.description).toContain("in the RIM desktop app");
+  });
+
   it("sends no Authorization header while no token is saved", async () => {
     const t = start(["rust-lang/rust"], { settings: {} });
     await t.host.handshake();
